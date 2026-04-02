@@ -1,0 +1,133 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(0 0 0); /* Pitch Black */
+  --foreground: oklch(0.9 0.02 50); /* Very light orange-grey for text */
+  --card: oklch(0.04 0 0); /* Extremely dark charcoal */
+  --card-foreground: oklch(0.9 0.02 50);
+  --popover: oklch(0.04 0 0);
+  --popover-foreground: oklch(0.9 0.02 50);
+  /* Neon Orange Accent */
+  --primary: oklch(0.7 0.22 45); 
+  --primary-foreground: oklch(0 0 0);
+  /* Neon Amber/Yellow Accent */
+  --secondary: oklch(0.85 0.22 75);
+  --secondary-foreground: oklch(0 0 0);
+  --muted: oklch(0.12 0 0);
+  --muted-foreground: oklch(0.5 0.05 45);
+  --accent: oklch(0.7 0.22 45);
+  --accent-foreground: oklch(0 0 0);
+  --destructive: oklch(0.5 0.2 20);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.2 0.1 45); /* dark orange borders */
+  --input: oklch(0.1 0.05 45);
+  --ring: oklch(0.7 0.22 45);
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: oklch(0 0 0);
+  --foreground: oklch(0.9 0.02 50);
+  --card: oklch(0.02 0 0);
+  --card-foreground: oklch(0.9 0.02 50);
+  --popover: oklch(0.02 0 0);
+  --popover-foreground: oklch(0.9 0.02 50);
+  --primary: oklch(0.7 0.22 45); /* Neon Orange */
+  --primary-foreground: oklch(0 0 0);
+  --secondary: oklch(0.85 0.22 75); /* Neon Amber */
+  --secondary-foreground: oklch(0 0 0);
+  --muted: oklch(0.12 0 0);
+  --muted-foreground: oklch(0.5 0.05 45);
+  --accent: oklch(0.7 0.22 45);
+  --accent-foreground: oklch(0 0 0);
+  --destructive: oklch(0.5 0.2 20);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.2 0.1 45);
+  --input: oklch(0.1 0.05 45);
+  --ring: oklch(0.7 0.22 45);
+}
+
+@theme inline {
+  --font-sans: 'Funnel Display', sans-serif;
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback', monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  *, ::before, ::after {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+  }
+}
+
+/* Alien Glassmorphism */
+.glassmorphism {
+  background: rgba(15, 8, 5, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 100, 0, 0.15);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5), inset 0 0 10px rgba(255, 100, 0, 0.05);
+  transition: all 0.3s ease-in-out;
+}
+
+.glassmorphism:hover {
+  border: 1px solid rgba(255, 100, 0, 0.4);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.8), inset 0 0 20px rgba(255, 100, 0, 0.15);
+}
+
+/* Glowing text utilities */
+.text-neon-orange {
+  color: oklch(0.7 0.22 45);
+  text-shadow: 0 0 10px rgba(255, 100, 0, 0.6);
+}
+
+.text-neon-amber {
+  color: oklch(0.85 0.22 75);
+  text-shadow: 0 0 10px rgba(255, 166, 0, 0.6);
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .7; }
+}
+
+html.dark body, body {
+  background-color: #000;
+  /* Glowing orbs at the corners to simulate alien tech bleeding light */
+  background-image: radial-gradient(circle 800px at 90% -10%, rgba(255, 100, 0, 0.08), transparent 60%),
+                    radial-gradient(circle 800px at 10% 110%, rgba(255, 166, 0, 0.05), transparent 60%);
+  background-attachment: fixed;
+}
