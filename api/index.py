@@ -58,7 +58,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 # AUTHENTICATION
 @app.post("/auth/signup")
 async def signup(user: UserSignup):
-    existing_user = await db.users.find_one({"email": user.email})
+    try:
+        existing_user = await db.users.find_one({"email": user.email})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database connection error: {str(e)}")
+        
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
         
@@ -73,7 +77,10 @@ async def signup(user: UserSignup):
 
 @app.post("/auth/login")
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = await db.users.find_one({"email": form_data.username})
+    try:
+        user = await db.users.find_one({"email": form_data.username})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database connection error: {str(e)}")
     if not user or not verify_password(form_data.password, user["password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

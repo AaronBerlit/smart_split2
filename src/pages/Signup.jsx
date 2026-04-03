@@ -20,7 +20,12 @@ const Signup = () => {
         body: JSON.stringify({ name, email, password })
       });
       if (!res.ok) {
-        const errData = await res.json();
+        let errData = {};
+        try {
+          errData = await res.json();
+        } catch (e) {
+          throw new Error('Server Error: Database connection failed or API is offline.');
+        }
         throw new Error(errData.detail || 'Signup failed');
       }
       // On success, redirect to login
