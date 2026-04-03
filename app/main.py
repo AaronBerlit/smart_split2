@@ -13,9 +13,19 @@ from app.models import UserSignup, UserLogin, GroupCreate, GroupJoin, BillSave
 import jwt
 from bson import ObjectId
 
+from fastapi.middleware.cors import CORSMiddleware
+
 load_dotenv()
 
 app = FastAPI(title="SmartSplit AI")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Configure Gemini
 api_key = os.getenv("GEMINI_API_KEY")
