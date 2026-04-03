@@ -23,3 +23,4 @@ class BillSave(BaseModel):
     tax: float
     total: float
     itemAssignments: Dict[str, List[str]]
+    paid_by: str

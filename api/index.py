@@ -162,16 +162,19 @@ async def save_bill(bill: BillSave, current_user: dict = Depends(get_current_use
 
 @app.post("/api/bills/pay")
 async def pay_bill(payload: dict, current_user: dict = Depends(get_current_user)):
-    # payload: {"bill_id": "123", "amount": 100}
-    bill_id = payload.get("bill_id")
-    try:
-        await db.bills.update_one(
-            {"_id": ObjectId(bill_id)},
-            {"$push": {"payments": {"user_id": current_user["_id"], "amount": payload.get("amount"), "status": "paid"}}}
-        )
-    except:
-        pass
-    return {"message": "Payment recorded"}
+    payments = payload.get("payments", [])
+    if "bill_id" in payload:
+        payments.append({"bill_id": payload.get("bill_id"), "amount": payload.get("amount")})
+        
+    for p in payments:
+        try:
+            await db.bills.update_one(
+                {"_id": ObjectId(p["bill_id"])},
+                {"$push": {"payments": {"user_id": current_user["_id"], "amount": p["amount"], "status": "paid"}}}
+            )
+        except Exception:
+            pass
+    return {"message": "Payments recorded"}
 
 # EXISTING AI ENDPOINTS
 class VoiceRequest(BaseModel):

@@ -20,6 +20,7 @@ const GroupSpace = () => {
   const [tax, setTax] = useState(0);
   const [total, setTotal] = useState(0);
   const [itemAssignments, setItemAssignments] = useState({});
+  const [paidBy, setPaidBy] = useState('');
 
   // Voice State
   const [isListening, setIsListening] = useState(false);
@@ -117,6 +118,7 @@ const GroupSpace = () => {
         tt = st + tx;
       }
       setSubtotal(st); setTax(tx); setTotal(tt); setItemAssignments({});
+      setPaidBy(user.id);
       setView('assignment');
     } catch (err) {
       alert("Error parsing receipt");
@@ -147,7 +149,8 @@ const GroupSpace = () => {
           subtotal,
           tax,
           total,
-          itemAssignments
+          itemAssignments,
+          paid_by: paidBy
         })
       });
       setItems([]); setSubtotal(0); setTax(0); setTotal(0); setItemAssignments({});
@@ -161,14 +164,14 @@ const GroupSpace = () => {
   const calculateSplit = () => {
     if (!group || !group.bills) return [];
     
-    const results = {};
-    group.members.forEach(p => {
-      // Add paid logic -> find out how much user already paid vs owes. 
-      results[p.id] = { person: p, subtotal: 0, tax: 0, total: 0, paid: 0 };
-    });
+    const debts = {}; // "from_to" -> { from Person, to Person, amount, bills: [] }
 
     group.bills.forEach(bill => {
+      if (!bill.paid_by) return; // Skip old bills without payee
+      
       let assignedTotal = 0;
+      const userCosts = {};
+      
       Object.keys(bill.itemAssignments).forEach(itemId => {
         const assignees = bill.itemAssignments[itemId];
         if (assignees.length > 0) {
@@ -176,10 +179,8 @@ const GroupSpace = () => {
           if (item) {
             const splitCost = item.price / assignees.length;
             assignees.forEach(pid => {
-              if (results[pid]) {
-                results[pid].subtotal += splitCost;
-                assignedTotal += splitCost;
-              }
+              userCosts[pid] = (userCosts[pid] || 0) + splitCost;
+              assignedTotal += splitCost;
             });
           }
         }
@@ -192,34 +193,48 @@ const GroupSpace = () => {
         if (item && assignees.length > 0) {
           const taxCost = (item.price / assignees.length) * taxRatio;
           assignees.forEach(pid => {
-            if (results[pid]) results[pid].tax += taxCost;
+            userCosts[pid] = (userCosts[pid] || 0) + taxCost;
           });
         }
       });
 
-      // Sum payments
+      const userPayments = {};
       if (bill.payments) {
-         bill.payments.forEach(pay => {
-            if (results[pay.user_id]) results[pay.user_id].paid += pay.amount;
-         });
+          bill.payments.forEach(pay => {
+              userPayments[pay.user_id] = (userPayments[pay.user_id] || 0) + pay.amount;
+          });
       }
+
+      Object.keys(userCosts).forEach(pid => {
+          if (pid !== bill.paid_by) {
+              const remainingOwed = userCosts[pid] - (userPayments[pid] || 0);
+              if (remainingOwed > 0.01) {
+                  const key = `${pid}_${bill.paid_by}`;
+                  if (!debts[key]) {
+                      const fromPerson = group.members.find(m => m.id === pid);
+                      const toPerson = group.members.find(m => m.id === bill.paid_by);
+                      if(fromPerson && toPerson) {
+                         debts[key] = { from: fromPerson, to: toPerson, amount: 0, bills: [] };
+                      }
+                  }
+                  if (debts[key]) {
+                      debts[key].amount += remainingOwed;
+                      debts[key].bills.push({ bill_id: bill._id, amount: remainingOwed });
+                  }
+              }
+          }
+      });
     });
 
-    return Object.values(results).filter(res => (res.subtotal > 0 || res.tax > 0)).map(res => {
-      res.total = res.subtotal + res.tax;
-      res.remaining = Math.max(0, res.total - res.paid);
-      return res;
-    });
+    return Object.values(debts);
   };
 
-  const markAsPaid = async (amount) => {
-    if(!group.bills || group.bills.length === 0) return;
+  const markAsPaid = async (debtBills) => {
     try {
         await apiFetch('/api/bills/pay', {
             method: 'POST',
             body: JSON.stringify({
-                bill_id: group.bills[group.bills.length - 1]._id, // Attribute to most recent bill for simplicity
-                amount
+                payments: debtBills
             })
         });
         await fetchGroup();
@@ -273,7 +288,7 @@ const GroupSpace = () => {
                     <div key={bill._id} className="p-3 rounded-lg border border-primary/40 bg-black/80 flex justify-between items-center shadow-[0_0_10px_rgba(255,100,0,0.1)]">
                       <div>
                         <p className="font-bold text-sm">Receipt #{index + 1}</p>
-                        <p className="text-xs text-muted-foreground">{bill.items.length} items</p>
+                        <p className="text-xs text-muted-foreground">Paid by: {group.members.find(m => m.id === bill.paid_by)?.name || 'Unknown'}</p>
                       </div>
                       <p className="font-bold text-neon-orange">₹{bill.total.toFixed(2)}</p>
                     </div>
@@ -318,11 +333,21 @@ const GroupSpace = () => {
 
       {view === 'assignment' && (
         <div className="space-y-8 animate-in slide-in-from-bottom-8 fade-in duration-500">
-          <div className="flex justify-between items-center mb-8 bg-black/40 p-4 border border-border/50 rounded-lg">
+          <div className="flex justify-between items-center mb-8 bg-black/40 p-4 border border-border/50 rounded-lg flex-wrap gap-4">
             <h2 className="text-xl font-bold text-neon-orange uppercase tracking-wider">Assign Current Bill</h2>
-            <button onClick={() => { setTranscript("Listening..."); setIsListening(true); recognitionRef.current?.start(); }} className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-secondary text-secondary bg-secondary/10 hover:bg-secondary/20 hover:text-neon-amber transition-all shadow-[0_0_10px_rgba(255,166,0,0.2)] h-9 px-4 py-2">
-              <Mic className="w-4 h-4 mr-2" /> Assign via Voice
-            </button>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center border border-border rounded-md px-3 py-1 bg-black/50">
+                <span className="text-xs text-muted-foreground mr-2 font-bold uppercase tracking-widest hidden sm:inline">Paid By:</span>
+                <select value={paidBy} onChange={(e) => setPaidBy(e.target.value)} className="bg-transparent text-sm font-bold text-foreground focus:outline-none appearance-none cursor-pointer">
+                  {group.members.map(m => (
+                    <option key={m.id} value={m.id} className="bg-gray-900">{m.name}</option>
+                  ))}
+                </select>
+              </div>
+              <button onClick={() => { setTranscript("Listening..."); setIsListening(true); recognitionRef.current?.start(); }} className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-secondary text-secondary bg-secondary/10 hover:bg-secondary/20 hover:text-neon-amber transition-all shadow-[0_0_10px_rgba(255,166,0,0.2)] h-9 px-4 py-2">
+                <Mic className="w-4 h-4 mr-2" /> Assign via Voice
+              </button>
+            </div>
           </div>
 
           <div className="space-y-3 border border-primary/30 rounded-xl p-6 bg-black/60 glassmorphism relative max-w-3xl mx-auto">
@@ -371,45 +396,50 @@ const GroupSpace = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-             {splitResults.length > 0 ? splitResults.map(res => {
-               const upiLink = `upi://pay?pa=merchant@upi&pn=SmartSplit&am=${res.remaining.toFixed(2)}`;
+             {splitResults.length > 0 ? splitResults.map((debt, index) => {
+               const isOwedByMe = debt.from.id === user.id;
+               const isOwedToMe = debt.to.id === user.id;
+               
+               const upiLink = `upi://pay?pa=merchant@upi&pn=SmartSplit&am=${debt.amount.toFixed(2)}`;
                return (
-                 <div key={res.person.id} className="border border-primary/30 rounded-2xl p-6 bg-black/60 glassmorphism relative overflow-hidden group">
+                 <div key={index} className={`border ${isOwedByMe ? 'border-secondary/60 shadow-[0_0_15px_rgba(255,166,0,0.15)]' : 'border-primary/30'} rounded-2xl p-6 bg-black/60 glassmorphism relative overflow-hidden group`}>
                    <div className="flex justify-between items-start mb-6 border-b border-border/50 pb-6">
                      <div className="flex items-center gap-3">
-                       <div className={`w-12 h-12 rounded-full ${res.person.color || 'bg-blue-500'} text-white flex items-center justify-center font-bold text-2xl`}>
-                         {res.person.name.charAt(0)}
+                       <div className={`w-12 h-12 rounded-full ${debt.from.color || 'bg-blue-500'} text-white flex items-center justify-center font-bold text-2xl`}>
+                         {debt.from.name.charAt(0)}
                        </div>
                        <div>
-                         <h3 className="text-xl font-bold">{res.person.name}</h3>
-                         {res.remaining <= 0 ? (
-                           <span className="text-xs text-secondary border border-secondary px-2 rounded-full mt-1 inline-block">Cleared</span>
+                         {isOwedByMe ? (
+                           <h3 className="text-xl font-bold text-secondary">You owe {debt.to.name.split(' ')[0]}</h3>
+                         ) : isOwedToMe ? (
+                           <h3 className="text-xl font-bold text-neon-orange">{debt.from.name.split(' ')[0]} owes you</h3>
                          ) : (
-                           <span className="text-xs text-primary border border-primary px-2 rounded-full mt-1 inline-block">Pending</span>
+                           <h3 className="text-xl font-bold">{debt.from.name.split(' ')[0]} owes {debt.to.name.split(' ')[0]}</h3>
                          )}
+                         <span className="text-xs text-muted-foreground border border-muted-foreground/30 px-2 rounded-full mt-1 inline-block">Pending Action</span>
                        </div>
                      </div>
                      <div className="text-right">
-                       <p className="text-xs text-muted-foreground uppercase tracking-widest">Remaining</p>
-                       <p className={`text-2xl font-bold ${res.remaining <= 0 ? 'text-secondary' : 'text-neon-orange'} tracking-tight`}>₹{res.remaining.toFixed(2)}</p>
+                       <p className="text-xs text-muted-foreground uppercase tracking-widest">Amount</p>
+                       <p className={`text-2xl font-bold ${isOwedByMe ? 'text-secondary' : 'text-neon-orange'} tracking-tight`}>₹{debt.amount.toFixed(2)}</p>
                      </div>
                    </div>
 
-                   {res.remaining > 0 && res.person.id === user.id && (
+                   {isOwedByMe && (
                      <div className="flex flex-col items-center pt-2">
                        <div className="bg-white p-3 rounded-xl mb-4">
                          <QRCodeSVG value={upiLink} size={130} />
                        </div>
-                       <a href={upiLink} className="w-full text-center py-3 rounded-lg font-bold border border-secondary bg-secondary/20 text-secondary hover:bg-secondary/40 transition-colors uppercase tracking-widest mb-3">
-                         <Check className="w-4 h-4 inline mr-2" /> Execute Payment Payload
+                       <a href={upiLink} target="_blank" rel="noreferrer" className="w-full text-center py-3 rounded-lg font-bold border border-secondary bg-secondary/20 text-secondary hover:bg-secondary/40 transition-colors uppercase tracking-widest mb-3">
+                         <Check className="w-4 h-4 inline mr-2" /> Pay via UPI
                        </a>
-                       <button onClick={() => markAsPaid(res.remaining)} className="text-xs text-muted-foreground hover:text-white underline uppercase">Bypass / Mark Paid Manually</button>
+                       <button onClick={() => markAsPaid(debt.bills)} className="text-xs text-muted-foreground hover:text-white underline uppercase">Bypass / Mark Paid Manually</button>
                      </div>
                    )}
                    
-                   {res.remaining > 0 && res.person.id !== user.id && (
+                   {!isOwedByMe && (
                      <div className="text-center py-6 text-muted-foreground text-sm">
-                        Waiting for {res.person.name} to clear debt via UPI.
+                        Waiting for {debt.from.name} to clear this debt to {debt.to.name}.
                      </div>
                    )}
                  </div>
