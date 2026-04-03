@@ -7,9 +7,9 @@ import json
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional
 
-from app.database import db
-from app.auth_utils import get_password_hash, verify_password, create_access_token, SECRET_KEY, ALGORITHM
-from app.models import UserSignup, UserLogin, GroupCreate, GroupJoin, BillSave
+from api.database import db
+from api.auth_utils import get_password_hash, verify_password, create_access_token, SECRET_KEY, ALGORITHM
+from api.models import UserSignup, UserLogin, GroupCreate, GroupJoin, BillSave
 import jwt
 from bson import ObjectId
 
