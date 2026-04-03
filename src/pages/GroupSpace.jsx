@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { apiFetch } from '../api';
 import { QRCodeSVG } from 'qrcode.react';
-import { UploadCloud, Check, ArrowRight, RotateCcw, Trash2, Mic, Receipt, Wallet } from 'lucide-react';
+import { UploadCloud, Check, ArrowRight, RotateCcw, Trash2, Mic, Receipt, Wallet, Copy } from 'lucide-react';
 
 const GroupSpace = () => {
   const { id } = useParams();
@@ -21,6 +21,7 @@ const GroupSpace = () => {
   const [total, setTotal] = useState(0);
   const [itemAssignments, setItemAssignments] = useState({});
   const [paidBy, setPaidBy] = useState('');
+  const [systemQuota, setSystemQuota] = useState({ exceeded: false, resetTime: null });
 
   // Voice State
   const [isListening, setIsListening] = useState(false);
@@ -30,7 +31,18 @@ const GroupSpace = () => {
   useEffect(() => {
     fetchGroup();
     setupVoice();
+    checkSystemQuota();
   }, [id]);
+
+  const checkSystemQuota = async () => {
+    try {
+      const res = await apiFetch('/api/system/status');
+      if (res.ok) {
+         const data = await res.json();
+         setSystemQuota({ exceeded: data.quotaExceeded, resetTime: data.resetTime });
+      }
+    } catch(e) {}
+  };
 
   const fetchGroup = async () => {
     try {
@@ -108,7 +120,10 @@ const GroupSpace = () => {
 
     try {
       const response = await apiFetch('/api/scan', { method: 'POST', body: formData });
-      if (!response.ok) throw new Error();
+      if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || "Error parsing receipt");
+      }
       const data = await response.json();
       
       setItems(data.items.map(i => ({ ...i, id: Math.random().toString() })));
@@ -121,7 +136,8 @@ const GroupSpace = () => {
       setPaidBy(user.id);
       setView('assignment');
     } catch (err) {
-      alert("Error parsing receipt");
+      alert(err.message || "Error parsing receipt");
+      checkSystemQuota();
     } finally {
       setLoadingMsg('');
     }
@@ -134,6 +150,14 @@ const GroupSpace = () => {
         ? { ...prev, [itemId]: current.filter(id => id !== personId) } 
         : { ...prev, [itemId]: [...current, personId] };
     });
+  };
+
+  const deleteTrip = async () => {
+    if (!window.confirm("Are you sure you want to delete this trip permanently?")) return;
+    try {
+      await apiFetch(`/api/groups/${id}`, { method: 'DELETE' });
+      navigate('/dashboard');
+    } catch(e) { alert("Failed to delete"); }
   };
 
   const saveBillToTrip = async () => {
@@ -253,7 +277,17 @@ const GroupSpace = () => {
           <div className="flex justify-between items-center bg-black/60 glassmorphism p-6 rounded-2xl border border-primary/30">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-widest mb-1">Active Operation</p>
-              <h2 className="text-3xl font-bold text-neon-orange uppercase tracking-wider">{group.name}</h2>
+              <div className="flex items-center gap-3">
+                 <h2 className="text-3xl font-bold text-neon-orange uppercase tracking-wider">{group.name}</h2>
+                 <button onClick={() => { navigator.clipboard.writeText(group._id); alert("Access ID Copied!"); }} className="text-muted-foreground hover:text-white" title="Copy Access ID">
+                   <Copy className="w-5 h-5"/>
+                 </button>
+                 {group.created_by === user.id && (
+                    <button onClick={deleteTrip} className="text-red-500/70 hover:text-red-500 ml-2" title="Delete Trip">
+                      <Trash2 className="w-5 h-5"/>
+                    </button>
+                 )}
+              </div>
             </div>
             <button onClick={() => setView('upload')} className="inline-flex items-center justify-center rounded-md font-bold border border-primary bg-primary/20 text-primary hover:bg-primary/40 hover:text-neon-orange transition-all shadow-[0_0_10px_rgba(255,100,0,0.2)] hover:shadow-[0_0_20px_rgba(255,100,0,0.5)] h-12 px-8 uppercase text-sm">
               <UploadCloud className="w-5 h-5 mr-2" /> Upload Protocol
@@ -311,22 +345,36 @@ const GroupSpace = () => {
 
       {view === 'upload' && (
         <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8 animate-in fade-in zoom-in duration-500">
-           <div className="w-full max-w-md mx-auto relative group">
-             <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-primary/50 bg-black/60 rounded-xl cursor-pointer glassmorphism">
-               <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center space-y-4">
-                 <div className="p-4 bg-primary/10 rounded-full group-hover:scale-110 transition-transform duration-300 shadow-[0_0_20px_rgba(255,100,0,0.2)] group-hover:shadow-[0_0_30px_rgba(255,100,0,0.6)]">
-                   <UploadCloud className="w-10 h-10 text-primary" />
-                 </div>
-                 <div>
-                   <p className="mb-2 text-sm font-bold text-foreground">
-                     <span className="text-primary hover:text-neon-orange transition-colors">Click to upload</span> or drag and drop
-                   </p>
-                   <p className="text-xs text-muted-foreground">PNG, JPG, JPEG (Max 10MB)</p>
-                 </div>
+           {systemQuota.exceeded ? (
+             <div className="w-full max-w-md mx-auto relative group text-center bg-black/60 glassmorphism p-8 rounded-xl border border-red-500/50">
+               <div className="w-16 h-16 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                 <RotateCcw className="w-8 h-8" />
                </div>
-               <input type="file" className="hidden" accept="image/*" onChange={handleFileUpload} />
-             </label>
-           </div>
+               <h3 className="text-xl font-bold text-red-400 uppercase tracking-widest mb-2">AI Quota Exceeded</h3>
+               <p className="text-muted-foreground mb-4">You have reached the server's generative AI limit. Uploads are temporarily locked.</p>
+               <p className="text-sm font-mono text-neon-orange bg-black/50 p-3 rounded-lg border border-primary/30">
+                 Next available processing time:<br/>
+                 {new Date(systemQuota.resetTime).toLocaleString()}
+               </p>
+             </div>
+           ) : (
+             <div className="w-full max-w-md mx-auto relative group">
+               <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-primary/50 bg-black/60 rounded-xl cursor-pointer glassmorphism">
+                 <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center space-y-4">
+                   <div className="p-4 bg-primary/10 rounded-full group-hover:scale-110 transition-transform duration-300 shadow-[0_0_20px_rgba(255,100,0,0.2)] group-hover:shadow-[0_0_30px_rgba(255,100,0,0.6)]">
+                     <UploadCloud className="w-10 h-10 text-primary" />
+                   </div>
+                   <div>
+                     <p className="mb-2 text-sm font-bold text-foreground">
+                       <span className="text-primary hover:text-neon-orange transition-colors">Click to upload</span> or drag and drop
+                     </p>
+                     <p className="text-xs text-muted-foreground">PNG, JPG, JPEG (Max 10MB)</p>
+                   </div>
+                 </div>
+                 <input type="file" className="hidden" accept="image/*" onChange={handleFileUpload} />
+               </label>
+             </div>
+           )}
            <button onClick={() => setView('dashboard')} className="text-muted-foreground hover:text-white uppercase text-xs tracking-widest">Cancel</button>
         </div>
       )}

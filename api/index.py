@@ -12,6 +12,7 @@ from api.auth_utils import get_password_hash, verify_password, create_access_tok
 from api.models import UserSignup, UserLogin, GroupCreate, GroupJoin, BillSave
 import jwt
 from bson import ObjectId
+from datetime import datetime, timedelta
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -131,6 +132,22 @@ async def get_user_groups(current_user: dict = Depends(get_current_user)):
         groups.append(g)
     return {"groups": groups}
 
+@app.delete("/api/groups/{group_id}")
+async def delete_group(group_id: str, current_user: dict = Depends(get_current_user)):
+    try:
+        group = await db.groups.find_one({"_id": ObjectId(group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+            
+        if group.get("created_by") != current_user["_id"]:
+            raise HTTPException(status_code=403, detail="Unauthorized to delete")
+            
+        await db.groups.delete_one({"_id": ObjectId(group_id)})
+        await db.bills.delete_many({"group_id": group_id})
+        return {"message": "Group deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.get("/api/groups/{group_id}")
 async def get_group(group_id: str, current_user: dict = Depends(get_current_user)):
     try:
@@ -210,13 +227,23 @@ async def scan_receipt(receipt: UploadFile = File(...)):
         response = model.generate_content(parts)
         text_resp = response.text.strip()
         
-        if text_resp.startswith("```json"): text_resp = text_resp[7:]
-        if text_resp.startswith("```"): text_resp = text_resp[3:]
-        if text_resp.endswith("```"): text_resp = text_resp[:-3]
+        import re
+        match = re.search(r'\{.*\}', text_resp, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        else:
+            raise ValueError(f"Could not extract JSON from response: {text_resp}")
             
-        return json.loads(text_resp.strip())
-        
     except Exception as e:
+        error_str = str(e).lower()
+        if "quota" in error_str or "429" in error_str or "exhausted" in error_str or "403" in error_str:
+            reset_time = datetime.utcnow() + timedelta(hours=24)
+            await db.system_settings.update_one(
+                {"_id": "api_quota"}, 
+                {"$set": {"quota_exceeded": True, "reset_time": reset_time.isoformat()}}, 
+                upsert=True
+            )
+            raise HTTPException(status_code=429, detail=f"API Quota Exceeded. Please try again later.")
         print(f"Error parsing receipt: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -239,4 +266,30 @@ async def parse_voice(request: VoiceRequest):
         if text_resp.endswith("```"): text_resp = text_resp[:-3]
         return json.loads(text_resp.strip())
     except Exception as e:
+        error_str = str(e).lower()
+        if "quota" in error_str or "429" in error_str or "exhausted" in error_str or "403" in error_str:
+            reset_time = datetime.utcnow() + timedelta(hours=24)
+            await db.system_settings.update_one(
+                {"_id": "api_quota"}, 
+                {"$set": {"quota_exceeded": True, "reset_time": reset_time.isoformat()}}, 
+                upsert=True
+            )
+            raise HTTPException(status_code=429, detail=f"API Quota Exceeded. Please try again later.")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/status")
+async def get_system_status():
+    quota_doc = await db.system_settings.find_one({"_id": "api_quota"})
+    if quota_doc and quota_doc.get("quota_exceeded"):
+        try:
+            reset_time = datetime.fromisoformat(quota_doc["reset_time"])
+            if datetime.utcnow() > reset_time:
+                await db.system_settings.update_one({"_id": "api_quota"}, {"$set": {"quota_exceeded": False}})
+                return {"quotaExceeded": False}
+            return {
+                "quotaExceeded": True,
+                "resetTime": quota_doc["reset_time"]
+            }
+        except Exception:
+            pass
+    return {"quotaExceeded": False}
